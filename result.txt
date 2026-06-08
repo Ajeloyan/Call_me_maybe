@@ -1,5 +1,5 @@
 {
-    "name": "fn_add".
+    "name": "fn_add",
     "parameters": 
     {
         "a": 2,
