@@ -1,5 +1,5 @@
 from .parser import parse_prompts, parse_functions
-
+from .llm import llm_test
 
 if __name__ == "__main__":
     filepath_p = "data/input/function_calling_tests.json"
@@ -11,3 +11,4 @@ if __name__ == "__main__":
     print("Prompts chargés :", len(prompts_list) if prompts_list else 0)
     print("Fonctions chargées :", len(functions) if functions else 0)
 
+    llm_test(prompts_list, functions)
