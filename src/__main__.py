@@ -1,4 +1,5 @@
 from .parser import parse_prompts, parse_functions
+from .llm import ConstrainedDecoder
 from llm_sdk import Small_LLM_Model
 import json
 
@@ -9,6 +10,14 @@ if __name__ == "__main__":
     prompts_list = parse_prompts(filepath_p)
     functions = parse_functions(filepath_f)
 
-    print("Prompts chargés :", len(prompts_list) if prompts_list else 0)
-    print("Fonctions chargées :", len(functions) if functions else 0)
+    model = Small_LLM_Model()
+    vocab_path = model.get_path_to_vocab_file()
 
+    with open(vocab_path, "r") as file:
+        vocab = json.load(file)
+    decoder = ConstrainedDecoder(model, vocab, functions)
+
+    test_prompt = prompts_list[0]
+    print(f"prompt test: {test_prompt}")
+    resultat = decoder.generate_function_call(test_prompt)
+    print(json.dumps(resultat, indent=4, ensure_ascii=False))
