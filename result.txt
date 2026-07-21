@@ -1,8 +1,0 @@
-{
-    "name": "fn_add",
-    "parameters": 
-    {
-        "a": 2,
-        "b": 3,
-    }
-}

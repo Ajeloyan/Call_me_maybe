@@ -14,3 +14,12 @@ dev = [
     "flake8>=7.3.0",
     "mypy>=2.1.0",
 ]
+
+
+[tool.mypy]
+exclude = "^llm_sdk/"
+
+[[tool.mypy.overrides]]
+module = "llm_sdk.*"
+ignore_missing_imports = true
+follow_imports = "skip"

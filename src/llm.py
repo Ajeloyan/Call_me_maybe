@@ -1,25 +1,26 @@
 from llm_sdk import Small_LLM_Model
 import json
-from src.models import PromptItem, FuncItems
+from .models import PromptItem, FuncItems
 import numpy as np
-from enum import Enum
+from enum import Enum, auto
+from pathlib import Path
 
 
 class States(Enum):
-    EXPECT_OPEN_BRACE = "{"
-    EXPECT_NAME_KEY = "name"
-    EXPECT_NAME_COLON = ":"
-    EXPECT_FUNCTION_NAME = "function_name"
-    EXPECT_NAME_COMMA = ","
-    EXPECT_PARAMETER_KEY = "parameters"
-    EXPECT_COLON_PARAM = ":"
-    EXPECT_PARAM_BRACE_O = "{"
-    EXPECT_ARGUMENT_NAME = "param_name"
-    EXPECT_COLON_PARAM_IN = ":"
-    EXPECT_PARAM_VALUE = "param_value"
-    EXPECT_PARAM_COMMA = ","
-    EXPECT_PARAM_BRACE_C = "}"
-    EXPECT_CLOSE_BRACE = "}"
+    EXPECT_OPEN_BRACE = auto()
+    EXPECT_NAME_KEY = auto()
+    EXPECT_NAME_COLON = auto()
+    EXPECT_FUNCTION_NAME = auto()
+    EXPECT_NAME_COMMA = auto()
+    EXPECT_PARAMETER_KEY = auto()
+    EXPECT_COLON_PARAM = auto()
+    EXPECT_PARAM_BRACE_O = auto()
+    EXPECT_ARGUMENT_NAME = auto()
+    EXPECT_COLON_PARAM_IN = auto()
+    EXPECT_PARAM_VALUE = auto()
+    EXPECT_PARAM_COMMA = auto()
+    EXPECT_PARAM_BRACE_C = auto()
+    EXPECT_CLOSE_BRACE = auto()
 
 
 class ConstrainedDecoder:
@@ -54,6 +55,8 @@ class ConstrainedDecoder:
                 clean_token = token_str.replace("Ġ", "").strip()
                 if clean_token == "":
                     continue
+                if self.current_prefix != "" and token_str.startswith("Ġ"):
+                    continue
                 word_test = self.current_prefix + clean_token
 
                 if target.startswith(word_test):
@@ -72,13 +75,15 @@ class ConstrainedDecoder:
 
                     if clean_token == "":
                         continue
-
                     if clean_token == '"':
                         autorized_tokens.append(token_id)
             else:
                 for token_str, token_id in self.vocab.items():
                     clean_token = token_str.replace("Ġ", "").strip()
-
+                    if clean_token == "":
+                        continue
+                    if self.current_prefix != "" and token_str.startswith("Ġ"):
+                        continue
                     word_test = self.current_prefix + clean_token
                     is_valid_token = False
 
@@ -102,6 +107,8 @@ class ConstrainedDecoder:
             for token_str, token_id in self.vocab.items():
                 clean_token = token_str.replace("Ġ", "").strip()
                 if clean_token == "":
+                    continue
+                if self.current_prefix != "" and token_str.startswith("Ġ"):
                     continue
                 word_test = self.current_prefix + clean_token
                 if target.startswith(word_test):
@@ -130,7 +137,11 @@ class ConstrainedDecoder:
             else:
                 for token_str, token_id in self.vocab.items():
                     clean_token = token_str.replace("Ġ", "").strip()
-
+                    if clean_token == "":
+                        continue
+                    if self.current_prefix != "" and token_str.startswith("Ġ"):
+                        continue
+                    assert self.selected_function is not None
                     word_test = self.current_prefix + clean_token
                     is_valid_token = False
 
@@ -153,14 +164,20 @@ class ConstrainedDecoder:
                     autorized_tokens.append(token_id)
 
         if self.current_state == States.EXPECT_PARAM_VALUE:
-            expected_type = self.selected_function.parameters[
-                self.current_param_name].type
+            assert self.selected_function is not None
+            expected_type = \
+                self.selected_function.parameters[self.current_param_name].type
             if expected_type in ["int", "number"]:
                 is_last_param = len(self.selected_function.parameters) == len(
                     self.generated_params)
                 for token_str, token_id in self.vocab.items():
                     clean_token = token_str.replace("Ġ", "").strip()
-                    if clean_token and all(char.isdigit() or char in "-." for char in clean_token):
+                    if clean_token == "":
+                        continue
+                    has_digit = any(c.isdigit() for c in clean_token)
+                    valid_chars = all(c.isdigit() or c in "-."
+                                      for c in clean_token)
+                    if valid_chars and has_digit:
                         autorized_tokens.append(token_id)
                     elif clean_token == "," and not is_last_param:
                         autorized_tokens.append(token_id)
@@ -259,7 +276,7 @@ class ConstrainedDecoder:
             token_str = self.reverse_voc[chosen_token_id]
             clean_token = token_str.replace("Ġ", "").strip()
             self.current_prefix += clean_token
-
+            assert self.selected_function is not None
             for param in self.selected_function.parameters:
                 if self.current_prefix == f'"{param}"':
                     self.generated_params.append(param)
@@ -274,7 +291,9 @@ class ConstrainedDecoder:
             return
 
         if self.current_state == States.EXPECT_PARAM_VALUE:
-            expected_type = self.selected_function.parameters[self.current_param_name].type
+            assert self.selected_function is not None
+            expected_type = \
+                self.selected_function.parameters[self.current_param_name].type
 
             token_str = self.reverse_voc[chosen_token_id]
             clean_token = token_str.replace("Ġ", "").strip()
@@ -289,7 +308,8 @@ class ConstrainedDecoder:
                     self.current_prefix += clean_token
 
                     if '"' in clean_token:
-                        if len(self.selected_function.parameters) == len(self.generated_params):
+                        if len(self.selected_function.parameters) == \
+                             len(self.generated_params):
                             self.current_state = States.EXPECT_PARAM_BRACE_C
                         else:
                             self.current_state = States.EXPECT_PARAM_COMMA
@@ -308,9 +328,10 @@ class ConstrainedDecoder:
                     self.current_prefix = ""
                     return
                 return
-            
+
             elif expected_type == "boolean":
-                if len(self.selected_function.parameters) == len(self.generated_params):
+                if len(self.selected_function.parameters) == \
+                     len(self.generated_params):
                     self.current_state = States.EXPECT_PARAM_BRACE_C
                 else:
                     self.current_state = States.EXPECT_PARAM_COMMA
@@ -324,14 +345,37 @@ class ConstrainedDecoder:
             self.current_state = States.EXPECT_CLOSE_BRACE
             return
 
-    def apply_mask(self, logits: np.array,
+    def apply_mask(self, logits: np.ndarray,
                    allowed_tokens: list[int]) -> np.ndarray:
         mask = np.full_like(logits, -np.inf, dtype=float)
         mask[allowed_tokens] = logits[allowed_tokens]
         return mask
 
+    def build_context(self, prompt: str) -> str:
+        tools_lines = []
+        for func in self.functions:
+            params_desc = ", ".join(
+                f"{name}: {info.type}"
+                for name, info in func.parameters.items()
+            )
+            tools_lines.append(f"- {func.name}({params_desc}):"
+                               f"{func.description}")
+        tools_block = "\n".join(tools_lines)
+
+        return (
+            "<|im_start|>system\n"
+            "You are a function-calling engine. Given a user request, "
+            "choose the single best matching function from the list below "
+            "and extract its arguments.\n"
+            f"Available functions:\n{tools_block}\n"
+            "<|im_end|>\n"
+            f"<|im_start|>user\n{prompt}\n<|im_end|>\n"
+            "<|im_start|>assistant\n"
+        )
+
     def generate_function_call(self, prompt: PromptItem) -> dict:
-        ids = self.model.encode(prompt.prompt)
+        context = self.build_context(prompt.prompt)
+        ids = self.model.encode(context)
         input_ids = ids.tolist()[0]
 
         generated_ids = []
@@ -341,23 +385,40 @@ class ConstrainedDecoder:
             logits_array = np.array(logits)
 
             allowed_tokens = self.get_allowed_tokens()
-
             masked_logits = self.apply_mask(logits_array, allowed_tokens)
-
             best_token_id = int(np.argmax(masked_logits))
 
             input_ids.append(best_token_id)
             generated_ids.append(best_token_id)
 
+            was_closing = self.current_state == States.EXPECT_CLOSE_BRACE
+
             self.consume_token(best_token_id)
 
-            if self.current_state == States.EXPECT_CLOSE_BRACE:
+            if was_closing:
                 break
 
         json_str = self.model.decode(generated_ids)
 
-        print("\n=== SCÈNE DE CRIME ===")
-        print(f"Texte généré : {repr(json_str)}")
-        print("======================\n")
+        result: dict = json.loads(json_str)
+        return result
 
-        return json.loads(json_str)
+
+def run_pipeline(prompts: PromptItem,
+                 functions: list[FuncItems],
+                 model: Small_LLM_Model,
+                 vocab: dict, output_path: str) -> list:
+    results = []
+    for prompt_item in prompts:
+        decoder = ConstrainedDecoder(model, vocab, functions)
+        call = decoder.generate_function_call(prompt_item)
+        results.append({
+            "prompt": prompt_item.prompt,
+            "name": call["name"],
+            "parameters": call["parameters"],
+        })
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(results, f, indent=4, ensure_ascii=False)
+
+    return results
